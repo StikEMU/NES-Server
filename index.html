@@ -6,6 +6,7 @@
         background-color: #000;
         margin: 0;
         display: flex;
+        flex-direction: column;
         justify-content: center;
         align-items: center;
         height: 100vh;
@@ -17,24 +18,42 @@
         width: auto;
         height: auto;
         max-width: 100%;
-        max-height: 100%;
-        aspect-ratio: 256 / 240; /* Maintain NES aspect ratio */
+        max-height: 90vh;
+        aspect-ratio: 256 / 240;
+      }
+      .upload-container {
+        margin: 20px;
+        text-align: center;
+      }
+      .upload-button {
+        background: #007AFF;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      .upload-button:hover {
+        background: #45a049;
       }
     </style>
   </head>
   <body>
     <canvas id="nesCanvas" width="256" height="240"></canvas>
+    <div class="upload-container">
+      <input type="file" id="romInput" accept=".nes" style="display: none">
+      <button class="upload-button" onclick="document.getElementById('romInput').click()">Upload ROM</button>
+    </div>
 
     <script type="module">
       import init, { WasmNes, Button } from './nes_rust_wasm.js';
 
-      let nes;         // We'll store the NES instance here.
-      let audioEnabled = false; // Track whether audio has been enabled.
+      let nes;
+      let audioEnabled = false;
 
-      // Called once the user presses any key, enabling audio in Safari.
       function enableAudio() {
         try {
-          // If audio is already enabled, do nothing.
           if (audioEnabled) return;
           audioEnabled = true;
 
@@ -50,7 +69,7 @@
             const data = e.outputBuffer.getChannelData(0);
             nes.update_sample_buffer(data);
             for (let i = 0; i < data.length; i++) {
-              data[i] *= 0.25; // Reduce volume
+              data[i] *= 0.25;
             }
           };
 
@@ -61,53 +80,44 @@
         }
       }
 
-      // Handle any key press to enable audio.
-      // After audio is enabled once, remove the event listener.
+      window.addEventListener('keydown', handleAnyKeyPress);
+
       function handleAnyKeyPress() {
         enableAudio();
         window.removeEventListener('keydown', handleAnyKeyPress);
       }
 
-      window.addEventListener('keydown', handleAnyKeyPress);
-
-      // Returns the value of a URL query parameter, or null if not found.
       function getQueryParameter(param) {
         const urlParams = new URLSearchParams(window.location.search);
         return urlParams.get(param);
       }
 
-      // Main function that loads and runs the emulator.
-      async function run(romPath) {
+      async function loadROM(romData) {
         try {
-          const wasm = await init();
+          if (!nes) {
+            const wasm = await init();
+            nes = WasmNes.new();
+          }
+          
           const canvas = document.getElementById("nesCanvas");
           const ctx = canvas.getContext("2d");
           const imageData = ctx.createImageData(256, 240);
           const pixels = new Uint8Array(imageData.data.buffer);
 
-          nes = WasmNes.new(); // Create the emulator instance
-
-          // Load the ROM
-          const response = await fetch(romPath);
-          if (!response.ok) {
-            throw new Error(`Failed to load ROM from ${romPath}`);
-          }
-          const rom = await response.arrayBuffer();
-          nes.set_rom(new Uint8Array(rom));
+          nes.set_rom(new Uint8Array(romData));
           nes.bootup();
 
-          // Setup keyboard handlers for NES controls
           const getButton = (keyCode) => {
             switch (keyCode) {
-              case 32: return Button.Start;       // Space
-              case 37: return Button.Joypad1Left; // Left
-              case 38: return Button.Joypad1Up;   // Up
-              case 39: return Button.Joypad1Right;// Right
-              case 40: return Button.Joypad1Down; // Down
-              case 65: return Button.Joypad1A;    // A
-              case 66: return Button.Joypad1B;    // B
-              case 83: return Button.Select;      // S
-              case 82: return Button.Reset;       // R
+              case 32: return Button.Start;
+              case 37: return Button.Joypad1Left;
+              case 38: return Button.Joypad1Up;
+              case 39: return Button.Joypad1Right;
+              case 40: return Button.Joypad1Down;
+              case 65: return Button.Joypad1A;
+              case 66: return Button.Joypad1B;
+              case 83: return Button.Select;
+              case 82: return Button.Reset;
               default: return null;
             }
           };
@@ -128,31 +138,42 @@
             }
           });
 
-          // Main loop
-          const stepFrame = () => {
+          function stepFrame() {
             requestAnimationFrame(stepFrame);
             nes.step_frame();
             nes.update_pixels(pixels);
             ctx.putImageData(imageData, 0, 0);
-          };
+          }
           stepFrame();
         } catch (error) {
           console.error(`Emulator error: ${error.message}`);
         }
       }
 
-      // On page load, we check if a ROM is specified and run it
+      // Handle ROM upload
+      document.getElementById('romInput').addEventListener('change', async (event) => {
+        const file = event.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => loadROM(e.target.result);
+          reader.readAsArrayBuffer(file);
+        }
+      });
+
+      // Handle ROM from URL parameter
       const romPath = getQueryParameter("rom");
       if (romPath) {
-        run(romPath);
+        fetch(romPath)
+          .then(response => response.arrayBuffer())
+          .then(data => loadROM(data))
+          .catch(error => console.error(`Failed to load ROM: ${error.message}`));
       }
 
-      // Resizes the canvas while maintaining NES aspect ratio
       function resizeCanvas() {
         const canvas = document.getElementById("nesCanvas");
         const aspectRatio = 256 / 240;
         const maxWidth = window.innerWidth;
-        const maxHeight = window.innerHeight;
+        const maxHeight = window.innerHeight * 0.9;
 
         if (maxWidth / aspectRatio < maxHeight) {
           canvas.style.width = `${maxWidth}px`;
